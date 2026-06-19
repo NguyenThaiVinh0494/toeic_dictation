@@ -1,12 +1,11 @@
-
 # Rule 02: UI/UX, Styling & Animation Requirements
 
 ## 1. Hệ thống Styling & Bố cục (TailwindCSS)
 
 - Chỉ sử dụng TailwindCSS utility classes. Tuyệt đối không viết CSS thuần.
-- **Background (Màu nền chủ đạo):** Toàn bộ ứng dụng phải sử dụng nền sáng màu với hiệu ứng gradient tím nhẹ để tạo cảm giác hiện đại, thư giãn. BẮT BUỘC áp dụng class: `bg-gradient-to-br from-slate-50 via-purple-50 to-white` (hoặc tương tự) cho vùng chứa chính (main wrapper).
 - Các thẻ nội dung (Card, Form) nên có màu nền trắng trong suốt (`bg-white/80`), viền mềm mại (`rounded-2xl`, `border-white`), kèm hiệu ứng kính mờ (`backdrop-blur-sm`) và đổ bóng nhẹ (`shadow-sm`).
 - **Thanh điều hướng:** Background kính mờ sáng màu. Biểu tượng tìm kiếm luôn căn phải.
+- **Background (Màu nền chủ đạo):** Toàn bộ ứng dụng phải sử dụng nền sáng màu với hiệu ứng gradient từ trắng chuyển dần sang tím nhẹ để tạo cảm giác hiện đại, thư giãn. BẮT BUỘC áp dụng class: `bg-gradient-to-br from-white to-purple-100` (hoặc `bg-gradient-to-b from-white to-purple-50` nếu chỉ muốn lướt nhẹ từ trên xuống) cho vùng chứa chính (main wrapper).
 
 ## 2. Hiệu ứng & Chuyển động (Framer Motion)
 

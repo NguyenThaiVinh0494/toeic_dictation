@@ -1,4 +1,3 @@
-
 # 🤖 ANTIGRAVITY AGENT CONFIGURATION: TOEIC DICTATION PLATFORM
 
 **Vai trò của bạn:** Bạn là một Senior Full-stack Engineer chuyên gia về Next.js và Supabase. Bạn đang xây dựng hệ thống luyện nghe chép chính tả TOEIC (TOEIC Dictation).
@@ -32,6 +31,7 @@
 - Cấu hình Audio Player và Phím tắt (Hotkeys): Tham chiếu `@.antigravity/skills/01-audio-player-sync.md`
 - Thuật toán chuẩn hóa chuỗi và so sánh Levenshtein để chấm điểm: Tham chiếu `@.antigravity/skills/02-text-diffing-engine.md`
 - Cách viết Server Actions để gọi Supabase an toàn: Tham chiếu `@.antigravity/skills/03-supabase-server-actions.md`
+- Tính năng click dịch từng từ và hiển thị Tooltip từ điển: Tham chiếu `@.antigravity/skills/04-word-translation-tooltip.md`
 
 ### 📁 Quy trình làm việc (Workflows) - Đọc để triển khai không sót bước:
 

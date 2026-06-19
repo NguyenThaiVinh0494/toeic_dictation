@@ -37,6 +37,12 @@
 - Thống kê số lượng bài tập đã hoàn thành theo từng Part.
 - Tính toán chi tiết tỷ lệ phần trăm từ nghe đúng trên tổng số từ của bài tập để theo dõi sự tiến bộ.
 
+### 5. Dịch nhanh & Tra cứu từ điển (Click-to-Translate & Tooltip)
+
+- **Tra từ bằng 1 click:** Người dùng click vào bất kỳ từ tiếng Anh nào trên giao diện transcript để xem giải nghĩa ngay lập tức qua một Tooltip/Popover nhỏ gọn.
+- **Thông tin chi tiết:** Hiển thị từ vựng gốc, phiên âm quốc tế (IPA) và định nghĩa ngắn gọn (loại từ và nghĩa chính).
+- **Tự động làm sạch & bộ nhớ đệm:** Tự động loại bỏ các dấu câu đặc biệt trước khi dịch và lưu đệm (cache) kết quả trên Client để tránh gọi API trùng lặp.
+
 ---
 
 ## 🔄 Luồng hoạt động chính (User Workflow)
@@ -119,3 +125,46 @@ Các khóa bảo mật được lưu cấu hình qua **Environment Variables** t
 - `NEXT_PUBLIC_SUPABASE_URL`: URL API của dự án Supabase.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`: Khóa công khai của Supabase (sử dụng ở Client).
 - `SUPABASE_SERVICE_ROLE_KEY`: Khóa bảo mật cao (chỉ sử dụng ở Server-side để thực hiện các thao tác quản trị).
+
+---
+
+## 🚀 Hướng dẫn Chạy, Dừng & Biên dịch Dự án
+
+### 1. Chạy dự án ở môi trường phát triển (Local Development)
+
+* **Bước 1:** Đảm bảo bạn đã cài đặt các thư viện phụ thuộc:
+  ```bash
+  npm install
+  ```
+* **Bước 2:** Tạo file `.env.local` ở thư mục gốc và sao chép cấu hình từ file `.env.example`, điền đầy đủ các thông tin kết nối Supabase của bạn.
+* **Bước 3:** Khởi động máy chủ phát triển (Development Server):
+  ```bash
+  npm run dev
+  ```
+* **Bước 4:** Mở trình duyệt và truy cập: [http://localhost:3000](http://localhost:3000).
+
+### 2. Dừng chương trình đang chạy
+
+* Nhấp chuột vào cửa sổ dòng lệnh (Terminal) đang chạy chương trình.
+* Nhấn tổ hợp phím **`Ctrl + C`**.
+* Nhập **`Y`** (hoặc `Yes`) và nhấn **`Enter`** nếu được hỏi để xác nhận dừng hẳn tiến trình.
+
+### 3. Biên dịch dự án (Build Production)
+
+Trước khi triển khai, bạn nên biên dịch thử nghiệm cục bộ để phát hiện sớm các lỗi TypeScript hoặc linter:
+* Chạy lệnh biên dịch:
+  ```bash
+  npm run build
+  ```
+* Chạy thử bản build production ngay trên máy cá nhân:
+  ```bash
+  npm run start
+  ```
+
+### 4. Triển khai dự án lên Render (Deployment)
+
+Khi đẩy code lên GitHub, Render Web Service sẽ tự động đồng bộ. Cấu hình cài đặt trên Render Dashboard như sau:
+
+* **Build Command:** `npm install && npm run build`
+* **Start Command:** `npm run start`
+* **Môi trường (Environment Variables):** Khai báo đầy đủ 4 biến môi trường đã liệt kê ở Mục 3 trong phần cấu hình biến môi trường của Render.
