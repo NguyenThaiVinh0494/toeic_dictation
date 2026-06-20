@@ -124,13 +124,14 @@ export default async function ProgressPage() {
     created_at: profile.created_at || new Date().toISOString()
   };
 
-  const safeSessions = (sessions || []).map(s => {
+  const safeSessions = (sessions || []).map((s) => {
     let title = "Đề bài";
     if (s.tests) {
-      if (Array.isArray(s.tests)) {
-        title = s.tests[0]?.title || "Đề bài";
+      const testVal = s.tests as unknown as { title: string } | { title: string }[];
+      if (Array.isArray(testVal)) {
+        title = testVal[0]?.title || "Đề bài";
       } else {
-        title = (s.tests as any).title || "Đề bài";
+        title = testVal.title || "Đề bài";
       }
     }
     return {
@@ -143,17 +144,27 @@ export default async function ProgressPage() {
     };
   });
 
-  const safeDetailedProgress = (detailedProgress || []).map(p => {
+  const safeDetailedProgress = (detailedProgress || []).map((p) => {
     let questionNumber = 0;
     let partType = "part_1";
     
     if (p.questions) {
-      const q = Array.isArray(p.questions) ? p.questions[0] : (p.questions as any);
+      interface QueriedQuestion {
+        question_number: number;
+        question_groups: {
+          part_type: string;
+        } | {
+          part_type: string;
+        }[] | null;
+      }
+      const qVal = p.questions as unknown as QueriedQuestion | QueriedQuestion[];
+      const q = Array.isArray(qVal) ? qVal[0] : qVal;
       if (q) {
         questionNumber = q.question_number || 0;
         const qg = q.question_groups;
         if (qg) {
-          const group = Array.isArray(qg) ? qg[0] : (qg as any);
+          const qgVal = qg as unknown as { part_type: string } | { part_type: string }[];
+          const group = Array.isArray(qgVal) ? qgVal[0] : qgVal;
           if (group) {
             partType = group.part_type || "part_1";
           }
