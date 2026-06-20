@@ -162,32 +162,40 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
     }
   };
 
-  // Keyboard Hotkeys logic (placed after helper function declarations)
+  // Keyboard Hotkeys (placed after helper function declarations)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Toggle play/pause on Space (only if not typing in input/textarea)
-      if (e.code === "Space") {
+      // Toggle play/pause on Control key (works even when typing) or 'p'/'P' key (only when NOT typing)
+      if (
+        e.key === "Control" ||
+        ((e.key === "p" || e.key === "P") &&
+          document.activeElement?.tagName !== "TEXTAREA" &&
+          document.activeElement?.tagName !== "INPUT")
+      ) {
+        e.preventDefault();
+        togglePlay();
+      }
+
+      // Rewind 3s on ArrowLeft (only when NOT focused on input/textarea) or Shift + Tab
+      if (e.code === "ArrowLeft" || (e.shiftKey && e.code === "Tab")) {
+        if (
+          document.activeElement?.tagName === "TEXTAREA" ||
+          document.activeElement?.tagName === "INPUT"
+        ) {
+          if (e.code === "ArrowLeft") return;
+        }
+        e.preventDefault();
+        rewind(3);
+      }
+
+      // Fast forward 3s on ArrowRight (only when NOT focused on input/textarea)
+      if (e.code === "ArrowRight") {
         if (
           document.activeElement?.tagName === "TEXTAREA" ||
           document.activeElement?.tagName === "INPUT"
         ) {
           return;
         }
-        e.preventDefault();
-        togglePlay();
-      }
-
-      // Rewind 3s on Ctrl + ArrowLeft or Shift + Tab
-      if (
-        (e.ctrlKey && e.code === "ArrowLeft") ||
-        (e.shiftKey && e.code === "Tab")
-      ) {
-        e.preventDefault();
-        rewind(3);
-      }
-
-      // Fast forward 3s on Ctrl + ArrowRight
-      if (e.ctrlKey && e.code === "ArrowRight") {
         e.preventDefault();
         forward(3);
       }
@@ -456,8 +464,8 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
             </span>
           </div>
 
-          {/* Part 1 Picture display */}
-          {partId === "part-1" && currentGroup.image_url ? (
+          {/* Picture display */}
+          {currentGroup.image_url ? (
             <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 shadow-xs flex items-center justify-center">
               <img
                 src={currentGroup.image_url}
@@ -529,7 +537,7 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
                   type="button"
                   onClick={() => rewind(3)}
                   className="p-2 rounded-lg bg-white border border-slate-200 hover:bg-slate-100 text-slate-600 transition-colors cursor-pointer"
-                  title="Tua lùi 3 giây (Ctrl + ⬅ hoặc Shift + Tab)"
+                  title="Tua lùi 3 giây (Shift + Tab hoặc Mũi tên trái)"
                 >
                   <RotateCcw className="h-4 w-4" />
                 </button>
@@ -558,7 +566,7 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
             <div className="flex items-center gap-1.5 text-[9px] text-slate-400 mt-1 border-t border-slate-200/50 pt-2 font-medium">
               <Info className="h-3 w-3 shrink-0" />
               <span>
-                Phím tắt: <b>Space</b> (Play/Pause), <b>Shift+Tab</b> / <b>Ctrl+⬅</b> (Tua lùi 3s)
+                Phím tắt: <b>Ctrl / P</b> (Play/Pause), <b>Shift+Tab / Mũi tên trái</b> (Lùi 3s), <b>Mũi tên phải</b> (Tiến 3s)
               </span>
             </div>
           </div>
@@ -596,7 +604,13 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
                         Q{q.question_number}
                       </span>
                       <span>
-                        {q.question_content || "Nghe và chọn phương án trả lời chính xác:"}
+                        {testSubmitted
+                          ? q.question_content || "Nghe và chọn phương án trả lời chính xác:"
+                          : partId === "part-2"
+                          ? "Mark your answer on your answer sheet."
+                          : partId === "part-1"
+                          ? "Look at the picture and choose the best statement."
+                          : q.question_content || "Nghe và chọn phương án trả lời chính xác:"}
                       </span>
                     </h4>
 
@@ -644,7 +658,13 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
                             >
                               {choice.key}
                             </span>
-                            <span className="flex-grow">{choice.val}</span>
+                            <span className="flex-grow">
+                              {testSubmitted
+                                ? choice.val
+                                : partId === "part-1" || partId === "part-2"
+                                ? `Phương án ${choice.key}`
+                                : choice.val}
+                            </span>
 
                             {testSubmitted && isCorrect && (
                               <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />

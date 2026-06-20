@@ -199,8 +199,15 @@ export default async function PartSelectionPage({ params }: PageProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
             {testsList.map((test, index) => (
               <AnimateWrapper key={test.testId} delay={0.2 + index * 0.05}>
-                <div className="group relative bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.01] hover:border-purple-200/50 flex flex-col justify-between h-full">
-                  <div>
+                <div className="cursor-pointer group relative bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 hover:scale-[1.01] hover:border-purple-200/50 flex flex-col justify-between h-full">
+                  {/* Make the entire card clickable by absolute overlay Link */}
+                  <Link
+                    href={`/practice/${normalizedPartId}/${test.testId}`}
+                    className="absolute inset-0 rounded-2xl z-10"
+                    aria-label={`Luyện tập ${test.testTitle}`}
+                  />
+                  
+                  <div className="relative z-0">
                     <div className="flex items-center gap-2 mb-2">
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 uppercase">
                         {test.bookTitle}
@@ -222,14 +229,13 @@ export default async function PartSelectionPage({ params }: PageProps) {
                     </div>
                   </div>
 
-                  <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-end">
-                    <Link
-                      href={`/practice/${normalizedPartId}/${test.testId}`}
-                      className="text-xs font-semibold text-purple-600 hover:text-purple-700 flex items-center gap-1 group/btn"
+                  <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-end relative z-20 pointer-events-none">
+                    <span
+                      className="text-xs font-semibold text-purple-600 group-hover:text-purple-700 flex items-center gap-1"
                     >
                       Bắt đầu luyện tập
-                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover/btn:translate-x-0.5" />
-                    </Link>
+                      <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                    </span>
                   </div>
                 </div>
               </AnimateWrapper>

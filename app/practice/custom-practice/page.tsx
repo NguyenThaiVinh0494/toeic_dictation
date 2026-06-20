@@ -61,7 +61,7 @@ export default function CustomPracticeSelection() {
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-purple-600 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Quay lại chế độ luyện tập
+          Quay lại lựa chọn chế độ luyện tập
         </Link>
       </AnimateWrapper>
 

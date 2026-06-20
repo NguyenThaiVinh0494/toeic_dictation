@@ -5,8 +5,12 @@ import { signInAction, signUpAction } from "@/app/actions/auth";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, User, ArrowRight, Loader2, Sparkles, CheckCircle2, AlertCircle } from "lucide-react";
 import AnimateWrapper from "@/components/AnimateWrapper";
+import { useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get("redirect") || "/";
+
   const [activeTab, setActiveTab] = useState<"signin" | "signup">("signin");
   const [isSignInPending, setIsSignInPending] = useState(false);
   const [isSignUpPending, setIsSignUpPending] = useState(false);
@@ -22,12 +26,10 @@ export default function LoginPage() {
     setLocalMessage(null);
 
     const formData = new FormData(e.currentTarget);
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
-    const result = await signInAction({ success: false }, { email, password });
+    const result = await signInAction(formData);
     
     if (result.success && result.redirectTo) {
-      window.location.href = result.redirectTo;
+      window.location.href = redirectTo;
     } else {
       setIsSignInPending(false);
       if (result.error) {
@@ -43,10 +45,7 @@ export default function LoginPage() {
     setLocalMessage(null);
 
     const formData = new FormData(e.currentTarget);
-    const email = formData.get("email") as string;
-    const password = formData.get("password") as string;
-    const fullName = formData.get("fullName") as string;
-    const result = await signUpAction({ success: false }, { email, password, fullName });
+    const result = await signUpAction(formData);
     
     setIsSignUpPending(false);
     if (result.success && result.message) {

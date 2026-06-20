@@ -55,12 +55,11 @@ export async function getProfileActions(): Promise<Profile | null> {
 }
 
 export async function signUpAction(
-  prevState: SignUpState,
-  data: { email?: string; password?: string; fullName?: string }
+  formData: FormData
 ): Promise<SignUpState> {
-  const email = data.email;
-  const password = data.password;
-  const fullName = data.fullName;
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
+  const fullName = formData.get("fullName") as string;
 
   if (!email || !password) {
     return { success: false, error: "Vui lòng điền đầy đủ email và mật khẩu." };
@@ -95,11 +94,10 @@ export async function signUpAction(
 }
 
 export async function signInAction(
-  prevState: SignInState,
-  data: { email?: string; password?: string }
+  formData: FormData
 ): Promise<SignInState> {
-  const email = data.email;
-  const password = data.password;
+  const email = formData.get("email") as string;
+  const password = formData.get("password") as string;
 
   if (!email || !password) {
     return { success: false, error: "Vui lòng nhập email và mật khẩu." };

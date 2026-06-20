@@ -70,20 +70,15 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
   // Timer states
   const [timeLeft, setTimeLeft] = useState(2700); // 45 minutes in seconds
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isTestStarted, setIsTestStarted] = useState(false);
 
   // Result scorecard states
   const [score, setScore] = useState<number | null>(null);
   const [timeSpent, setTimeSpent] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
 
-  // Dictation review mode states (when reviewing incorrect questions)
-  const [reviewGroupIdx, setReviewGroupIdx] = useState<number | null>(null);
-  const [reviewPhase, setReviewPhase] = useState<"dictation" | "review">("dictation");
-  const [dictationInput, setDictationInput] = useState("");
-  const [dictationResult, setDictationResult] = useState<DiffResult[] | null>(null);
-  const [accuracy, setAccuracy] = useState<number | null>(null);
-  const [showTranslation, setShowTranslation] = useState(false);
-  const [isSavingReview, setIsSavingReview] = useState(false);
+  // Review explanation state
+  const [showExplanation, setShowExplanation] = useState(false);
 
   // Audio player states
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -193,7 +188,7 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
 
   // 1. Timer Countdown Effect (placed after handleExamSubmit is declared)
   useEffect(() => {
-    if (status !== "testing") return;
+    if (status !== "testing" || !isTestStarted) return;
 
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -208,31 +203,54 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [status, handleExamSubmit]);
+  }, [status, handleExamSubmit, isTestStarted]);
+
+  // Autoplay sequence: play audio when a group changes or the test is started
+  useEffect(() => {
+    if (status === "testing" && isTestStarted && audioRef.current) {
+      audioRef.current.play()
+        .then(() => setIsPlaying(true))
+        .catch((err) => console.log("Auto-play failed:", err));
+    }
+  }, [currentGroupIdx, isTestStarted, status]);
 
   // Keyboard Hotkeys (placed after togglePlay, rewind, forward are declared)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.code === "Space") {
+      // Disable hotkeys during active test phase
+      if (status !== "result") return;
+
+      // Toggle play/pause on Control key (works even when typing) or 'p'/'P' key (only when NOT typing)
+      if (
+        e.key === "Control" ||
+        ((e.key === "p" || e.key === "P") &&
+          document.activeElement?.tagName !== "TEXTAREA" &&
+          document.activeElement?.tagName !== "INPUT")
+      ) {
+        e.preventDefault();
+        togglePlay();
+      }
+
+      // Rewind 3s on ArrowLeft (only when NOT focused on input/textarea) or Shift + Tab
+      if (e.code === "ArrowLeft" || (e.shiftKey && e.code === "Tab")) {
+        if (
+          document.activeElement?.tagName === "TEXTAREA" ||
+          document.activeElement?.tagName === "INPUT"
+        ) {
+          if (e.code === "ArrowLeft") return;
+        }
+        e.preventDefault();
+        rewind(3);
+      }
+
+      // Fast forward 3s on ArrowRight (only when NOT focused on input/textarea)
+      if (e.code === "ArrowRight") {
         if (
           document.activeElement?.tagName === "TEXTAREA" ||
           document.activeElement?.tagName === "INPUT"
         ) {
           return;
         }
-        e.preventDefault();
-        togglePlay();
-      }
-
-      if (
-        (e.ctrlKey && e.code === "ArrowLeft") ||
-        (e.shiftKey && e.code === "Tab")
-      ) {
-        e.preventDefault();
-        rewind(3);
-      }
-
-      if (e.ctrlKey && e.code === "ArrowRight") {
         e.preventDefault();
         forward(3);
       }
@@ -266,68 +284,7 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
     return list;
   }, [status, selectedAnswers, groups]);
 
-  // Start Dictation Review for a wrong question's group
-  const startReviewGroup = (groupIdx: number) => {
-    setReviewGroupIdx(groupIdx);
-    setReviewPhase("dictation");
-    setDictationInput("");
-    setDictationResult(null);
-    setAccuracy(null);
-    setShowTranslation(false);
-    
-    // Stop exam audio and load review audio
-    setIsPlaying(false);
-    setCurrentTime(0);
-    setTimeout(() => {
-      if (audioRef.current) {
-        audioRef.current.load();
-      }
-    }, 50);
-  };
 
-  // Submit Dictation during Review
-  const handleReviewDictationSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (reviewGroupIdx === null || isSavingReview) return;
-    if (!dictationInput.trim()) return;
-
-    setIsSavingReview(true);
-    const targetGroup = groups[reviewGroupIdx];
-    const diff = diffWords(targetGroup.transcript_text, dictationInput);
-    setDictationResult(diff);
-
-    const totalWords = diff.length;
-    const correctWords = diff.filter((w) => w.status === "correct").length;
-    const computedAccuracy = totalWords > 0 ? Math.round((correctWords / totalWords) * 100) : 0;
-
-    setAccuracy(computedAccuracy);
-    setReviewPhase("review");
-
-    if (computedAccuracy === 100) {
-      setShowTranslation(true);
-    }
-
-    // Save dictation progress to database (linking to this session)
-    try {
-      const promises = targetGroup.questions.map((q) => {
-        const userAnswer = selectedAnswers[q.id] || null;
-        const isCorrect = userAnswer === q.correct_answer;
-        return saveQuestionProgress(
-          q.id,
-          testId,
-          userAnswer,
-          isCorrect,
-          computedAccuracy,
-          dictationInput
-        );
-      });
-      await Promise.all(promises);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSavingReview(false);
-    }
-  };
 
   // Dictionary tooltips
   const handleWordClick = async (event: React.MouseEvent<HTMLSpanElement>, rawWord: string) => {
@@ -407,8 +364,9 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
 
   // Format timer
   const formatTimer = (secs: number) => {
+    if (isNaN(secs)) return "00:00";
     const mins = Math.floor(secs / 60);
-    const remain = secs % 60;
+    const remain = Math.floor(secs % 60);
     return `${mins.toString().padStart(2, "0")}:${remain.toString().padStart(2, "0")}`;
   };
 
@@ -436,21 +394,23 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
       onClick={handleContainerClick}
       className="relative w-full flex flex-col gap-6 select-none"
     >
-      {/* Hidden audio element */}
       <audio
         ref={audioRef}
-        src={
-          (reviewGroupIdx !== null
-            ? groups[reviewGroupIdx].audio_url
-            : currentGroup?.audio_url) || undefined
-        }
+        src={currentGroup?.audio_url || undefined}
         onTimeUpdate={() => {
           if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
         }}
         onLoadedMetadata={() => {
           if (audioRef.current) setDuration(audioRef.current.duration);
         }}
-        onEnded={() => setIsPlaying(false)}
+        onEnded={() => {
+          setIsPlaying(false);
+          if (status === "testing" && isTestStarted) {
+            if (currentGroupIdx < groups.length - 1) {
+              selectGroup(currentGroupIdx + 1);
+            }
+          }
+        }}
       />
 
       {/* Dictionary Popover Tooltip */}
@@ -495,8 +455,60 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
         )}
       </AnimatePresence>
 
-      {/* VIEW 1: TESTING PORTAL */}
-      {status === "testing" && (
+      {/* VIEW 1: TESTING PORTAL - START SCREEN */}
+      {status === "testing" && !isTestStarted && (
+        <div className="max-w-2xl mx-auto w-full bg-white/80 border border-white/20 backdrop-blur-sm p-8 sm:p-10 rounded-3xl shadow-lg flex flex-col items-center text-center gap-6 my-8">
+          <div className="h-16 w-16 rounded-2xl bg-purple-50 border border-purple-100 flex items-center justify-center text-purple-600 mb-2">
+            <ClipboardList className="h-8 w-8" />
+          </div>
+          
+          <div className="space-y-2">
+            <h1 className="text-2xl font-black text-slate-900">Bài Thi Thử TOEIC Listening</h1>
+            <p className="text-sm text-slate-500 max-w-md mx-auto">
+              Chuẩn bị bước vào phòng thi thử nghiêm ngặt mô phỏng 100% môi trường thi thật TOEIC Listening.
+            </p>
+          </div>
+
+          <div className="w-full grid grid-cols-2 gap-4 my-2">
+            <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-center">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Thời gian làm bài</span>
+              <span className="text-xl font-extrabold text-slate-900 mt-1 block">45 phút</span>
+            </div>
+            <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-center">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Số lượng câu hỏi</span>
+              <span className="text-xl font-extrabold text-slate-900 mt-1 block">{totalQuestionsCount} câu</span>
+            </div>
+          </div>
+
+          <div className="w-full bg-amber-50/50 border border-amber-100/50 p-5 rounded-2xl text-left space-y-3">
+            <h3 className="text-xs font-extrabold text-amber-850 flex items-center gap-1.5">
+              <Info className="h-4 w-4 shrink-0 animate-pulse text-amber-600" />
+              NỘI QUY PHÒNG THI (EXAM MODE)
+            </h3>
+            <ul className="text-xs text-slate-600 space-y-2 list-disc list-inside">
+              <li>Âm thanh sẽ phát liên tục tự động từ câu 1 đến câu cuối cùng.</li>
+              <li>Bạn <strong className="text-rose-650">không thể</strong> tạm dừng, tua lại hoặc tua nhanh âm thanh.</li>
+              <li>Mỗi nhóm câu hỏi chỉ được nghe <strong className="text-rose-650">duy nhất 1 lần</strong>.</li>
+              <li>Đồng hồ sẽ đếm ngược liên tục. Khi hết 45 phút, hệ thống sẽ tự động nộp bài.</li>
+              <li>Hãy đảm bảo tai nghe và kết nối internet của bạn hoạt động ổn định trước khi bắt đầu.</li>
+            </ul>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setIsTestStarted(true);
+            }}
+            className="w-full sm:w-auto px-8 py-4 rounded-2xl bg-purple-600 hover:bg-purple-700 text-white font-extrabold text-sm shadow-md active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-2"
+          >
+            Bắt đầu làm bài
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* VIEW 1: TESTING PORTAL - ACTIVE TEST */}
+      {status === "testing" && isTestStarted && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           {/* Main Work Column (8 cols) */}
           <div className="lg:col-span-8 flex flex-col gap-6">
@@ -541,9 +553,9 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 </span>
               </div>
 
-              {/* Part 1 Picture display */}
-              {currentGroup.part_type === "part_1" && currentGroup.image_url && (
-                <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center">
+              {/* Picture display (Part 1, Part 3 & 4 graphics) */}
+              {currentGroup.image_url && (
+                <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center shadow-xs">
                   <img
                     src={currentGroup.image_url}
                     alt="Question visual resource"
@@ -571,12 +583,8 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                     max={duration || 0}
                     step={0.1}
                     value={currentTime}
-                    onChange={(e) => {
-                      const newTime = parseFloat(e.target.value);
-                      setCurrentTime(newTime);
-                      if (audioRef.current) audioRef.current.currentTime = newTime;
-                    }}
-                    className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                    disabled={true}
+                    className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-not-allowed accent-purple-600 opacity-60"
                   />
                   <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
                     {formatTime(duration)}
@@ -584,37 +592,13 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={togglePlay}
-                      className="p-2 rounded-full bg-purple-600 text-white cursor-pointer hover:bg-purple-700"
-                    >
-                      {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white translate-x-0.5" />}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => rewind(3)}
-                      className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 cursor-pointer hover:bg-slate-50"
-                      title="Lùi 3 giây (Shift + Tab)"
-                    >
-                      <RotateCcw className="h-3.5 w-3.5" />
-                    </button>
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-xl">
+                    <Info className="h-3.5 w-3.5 animate-pulse shrink-0 text-amber-600" />
+                    <span>🔊 Âm thanh phát tự động (Không thể tạm dừng/tua)</span>
                   </div>
 
-                  <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
-                    {[0.75, 1.0, 1.25].map((rate) => (
-                      <button
-                        key={rate}
-                        type="button"
-                        onClick={() => changePlaybackRate(rate)}
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                          playbackRate === rate ? "bg-purple-600 text-white" : "text-slate-600"
-                        }`}
-                      >
-                        {rate.toFixed(2)}x
-                      </button>
-                    ))}
+                  <div className="text-[10px] font-bold text-slate-400 bg-white border border-slate-150 px-2 py-1 rounded-lg">
+                    Tốc độ: 1.0x
                   </div>
                 </div>
               </div>
@@ -628,7 +612,13 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                     <span className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
                       Q{q.question_number}
                     </span>
-                    <span>{q.question_content || "Listen and choose the correct option:"}</span>
+                    <span>
+                      {currentGroup.part_type === "part_1"
+                        ? "Look at the picture and choose the best statement."
+                        : currentGroup.part_type === "part_2"
+                        ? "Mark your answer on your answer sheet."
+                        : q.question_content || "Listen and choose the correct option:"}
+                    </span>
                   </h4>
 
                   <div className="grid grid-cols-1 gap-2">
@@ -666,21 +656,26 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                           >
                             {choice.key}
                           </span>
-                          <span className="flex-grow">{choice.val}</span>
+                          <span className="flex-grow">
+                            {currentGroup.part_type === "part_1" || currentGroup.part_type === "part_2"
+                              ? `Phương án ${choice.key}`
+                              : choice.val}
+                          </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
               ))}
+            </div>
 
               {/* Navigation */}
               <div className="border-t border-slate-100 pt-4 flex justify-between">
                 <button
                   type="button"
                   onClick={() => selectGroup(Math.max(0, currentGroupIdx - 1))}
-                  disabled={currentGroupIdx === 0}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-30 cursor-pointer flex items-center gap-1"
+                  disabled={true}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs disabled:opacity-40 cursor-not-allowed flex items-center gap-1"
                 >
                   <ChevronLeft className="h-4 w-4" />
                   Nhóm trước
@@ -689,15 +684,14 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 <button
                   type="button"
                   onClick={() => selectGroup(Math.min(groups.length - 1, currentGroupIdx + 1))}
-                  disabled={currentGroupIdx === groups.length - 1}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-30 cursor-pointer flex items-center gap-1"
+                  disabled={true}
+                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs disabled:opacity-40 cursor-not-allowed flex items-center gap-1"
                 >
                   Nhóm sau
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
             </div>
-          </div>
 
           {/* Sidebar Question Map (4 cols) */}
           <div className="lg:col-span-4 bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-3xl shadow-sm flex flex-col gap-4">
@@ -715,13 +709,13 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                     <button
                       key={q.id}
                       type="button"
-                      onClick={() => selectGroup(gIdx)}
-                      className={`h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${
+                      disabled={true}
+                      className={`h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-not-allowed opacity-90 ${
                         isActiveGroup
                           ? "ring-2 ring-purple-600 bg-purple-100 text-purple-700"
                           : isAnswered
                           ? "bg-purple-600 text-white shadow-xs"
-                          : "bg-slate-50 border border-slate-200 text-slate-600 hover:bg-slate-100"
+                          : "bg-slate-50 border border-slate-200 text-slate-600"
                       }`}
                     >
                       {q.question_number}
@@ -780,271 +774,322 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
             </div>
           </div>
 
-          {/* Dictation Review Portal */}
+          {/* Main Review Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
-            {/* Incorrect questions list sidebar (5 cols) */}
-            <div className="lg:col-span-5 bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-3xl shadow-sm flex flex-col gap-4">
-              <h3 className="text-xs font-bold text-slate-700 flex items-center gap-1.5 border-b border-slate-100 pb-2">
-                <XCircle className="h-4.5 w-4.5 text-rose-500" />
-                Câu hỏi làm sai ({wrongQuestions.length} câu)
-              </h3>
+            {/* Left Column: Active Group Details and Questions (8 cols) */}
+            <div className="lg:col-span-8 flex flex-col gap-6">
+              {/* Media Card */}
+              <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-3xl shadow-sm flex flex-col gap-4">
+                <div className="flex items-center justify-between border-b border-slate-50 pb-2">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 uppercase">
+                    {getPartBadge(currentGroup.part_type)}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-400">
+                    Nhóm {currentGroupIdx + 1}/{groups.length}
+                  </span>
+                </div>
 
-              {wrongQuestions.length === 0 ? (
-                <div className="text-center py-8 text-xs text-slate-500">
-                  🎉 Tuyệt vời! Bạn đã trả lời đúng 100% các câu hỏi trong đề thi này!
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2 overflow-y-auto max-h-[450px] pr-1">
-                  {wrongQuestions.map((wq) => {
-                    const isReviewingThis = reviewGroupIdx === wq.groupIdx;
-                    const selectedAns = selectedAnswers[wq.question.id] || "Không trả lời";
-                    return (
-                      <button
-                        key={wq.question.id}
-                        type="button"
-                        onClick={() => startReviewGroup(wq.groupIdx)}
-                        className={`w-full p-3 rounded-xl border text-left text-xs font-semibold transition-all flex items-center justify-between cursor-pointer ${
-                          isReviewingThis
-                            ? "border-purple-500 bg-purple-50/50 text-purple-800"
-                            : "border-slate-150 hover:bg-slate-50 text-slate-700"
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="h-5 w-5 rounded bg-rose-50 border border-rose-100 text-rose-600 flex items-center justify-center font-bold text-[10px]">
-                            Q{wq.question.question_number}
-                          </span>
-                          <span className="text-[10px] text-slate-400">({getPartBadge(groups[wq.groupIdx].part_type)})</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-[10px]">
-                          <span className="text-red-500 line-through">Bạn: {selectedAns}</span>
-                          <span className="text-green-600 font-bold">Đáp án: {wq.question.correct_answer}</span>
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                {/* Picture display (Part 1, Part 3 & 4 graphics) */}
+                {currentGroup.image_url && (
+                  <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center shadow-xs">
+                    <img
+                      src={currentGroup.image_url}
+                      alt="Question visual resource"
+                      className="object-contain w-full h-full"
+                    />
+                  </div>
+                )}
 
-            {/* Dictation Review Form (7 cols) */}
-            <div className="lg:col-span-7 flex flex-col gap-6">
-              {reviewGroupIdx === null ? (
-                <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-12 rounded-3xl text-center shadow-xs text-slate-500 text-xs flex flex-col items-center justify-center gap-3">
-                  <Volume2 className="h-10 w-10 text-slate-400 animate-bounce" />
-                  <p className="font-semibold text-slate-700">Luyện nghe chép sửa lỗi sai (Dictation Review)</p>
-                  <p className="max-w-xs leading-relaxed text-slate-400">
-                    Vui lòng chọn một câu hỏi làm sai ở danh sách bên trái để tiến hành nghe và chép chính tả lại đoạn hội thoại/bài nói đó.
-                  </p>
-                </div>
-              ) : (
-                <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-sm flex flex-col gap-6">
-                  {/* Title of group under review */}
-                  <div className="border-b border-slate-100 pb-3 flex justify-between items-center">
-                    <h3 className="font-bold text-slate-800 text-sm flex items-center gap-1.5">
-                      <Sparkles className="h-4.5 w-4.5 text-amber-500 animate-pulse" />
-                      Luyện chép lại Nhóm câu của Q{groups[reviewGroupIdx].questions[0].question_number}
-                    </h3>
-                    <span className="text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded">
-                      {getPartBadge(groups[reviewGroupIdx].part_type)}
+                {/* Part 3 & 4 Passage display */}
+                {currentGroup.reading_passage_text && (
+                  <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 text-xs leading-relaxed text-slate-700 font-mono">
+                    {currentGroup.reading_passage_text}
+                  </div>
+                )}
+
+                {/* Audio controller block */}
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 mt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
+                      {formatTime(currentTime)}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={duration || 0}
+                      step={0.1}
+                      value={currentTime}
+                      onChange={(e) => {
+                        const newTime = parseFloat(e.target.value);
+                        setCurrentTime(newTime);
+                        if (audioRef.current) audioRef.current.currentTime = newTime;
+                      }}
+                      className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                    />
+                    <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
+                      {formatTime(duration)}
                     </span>
                   </div>
 
-                  {/* Audio controller block */}
-                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3">
+                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
-                        {formatTime(currentTime)}
-                      </span>
-                      <input
-                        type="range"
-                        min={0}
-                        max={duration || 0}
-                        step={0.1}
-                        value={currentTime}
-                        onChange={(e) => {
-                          const newTime = parseFloat(e.target.value);
-                          setCurrentTime(newTime);
-                          if (audioRef.current) audioRef.current.currentTime = newTime;
-                        }}
-                        className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                      />
-                      <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
-                        {formatTime(duration)}
-                      </span>
+                      <button
+                        type="button"
+                        onClick={togglePlay}
+                        className="p-2 rounded-full bg-purple-600 text-white cursor-pointer hover:bg-purple-700"
+                      >
+                        {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white translate-x-0.5" />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => rewind(3)}
+                        className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 cursor-pointer hover:bg-slate-50"
+                        title="Lùi 3 giây (Shift + Tab hoặc Mũi tên trái)"
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" />
+                      </button>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                    <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
+                      {[0.75, 1.0, 1.25].map((rate) => (
                         <button
+                          key={rate}
                           type="button"
-                          onClick={togglePlay}
-                          className="p-2 rounded-full bg-purple-600 text-white cursor-pointer hover:bg-purple-700"
+                          onClick={() => changePlaybackRate(rate)}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                            playbackRate === rate ? "bg-purple-600 text-white" : "text-slate-600"
+                          }`}
                         >
-                          {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white translate-x-0.5" />}
+                          {rate.toFixed(2)}x
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => rewind(3)}
-                          className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 cursor-pointer hover:bg-slate-50"
-                        >
-                          <RotateCcw className="h-3.5 w-3.5" />
-                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Questions review display */}
+              <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-sm space-y-6">
+                {currentGroup.questions.map((q) => {
+                  const userAns = selectedAnswers[q.id] || null;
+                  const isCorrect = userAns === q.correct_answer;
+                  const isAnswered = !!userAns;
+
+                  return (
+                    <div key={q.id} className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-bold text-slate-900 flex items-start gap-2">
+                          <span className="inline-flex items-center justify-center shrink-0 h-5 w-5 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">
+                            Q{q.question_number}
+                          </span>
+                          <span>{q.question_content || "Nghe và chọn phương án đúng:"}</span>
+                        </h4>
+                        
+                        {/* Correct/Incorrect Badge */}
+                        {isCorrect ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-green-50 text-green-700 border border-green-150">
+                            Đúng
+                          </span>
+                        ) : isAnswered ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-red-50 text-red-700 border border-red-150">
+                            Sai (Bạn chọn: {userAns})
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-50 text-slate-600 border border-slate-200">
+                            Chưa trả lời
+                          </span>
+                        )}
                       </div>
 
-                      <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
-                        {[0.75, 1.0, 1.25].map((rate) => (
-                          <button
-                            key={rate}
-                            type="button"
-                            onClick={() => changePlaybackRate(rate)}
-                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                              playbackRate === rate ? "bg-purple-600 text-white" : "text-slate-600"
-                            }`}
+                      <div className="grid grid-cols-1 gap-2">
+                        {(
+                          [
+                            { key: "A", val: q.option_a },
+                            { key: "B", val: q.option_b },
+                            { key: "C", val: q.option_c },
+                            ...(q.option_d ? [{ key: "D", val: q.option_d }] : []),
+                          ] as { key: CorrectAnswerOption; val: string }[]
+                        ).map((choice) => {
+                          const isChoiceCorrect = choice.key === q.correct_answer;
+                          const isChoiceSelected = userAns === choice.key;
+
+                          let choiceStyle = "border-slate-200 text-slate-700";
+                          let numStyle = "bg-slate-50 border-slate-200 text-slate-600";
+
+                          if (isChoiceCorrect) {
+                            choiceStyle = "border-green-500 bg-green-50/50 text-green-800 font-bold";
+                            numStyle = "bg-green-600 border-green-600 text-white";
+                          } else if (isChoiceSelected) {
+                            choiceStyle = "border-red-500 bg-red-50/50 text-red-800 font-bold";
+                            numStyle = "bg-red-600 border-red-600 text-white";
+                          }
+
+                          return (
+                            <div
+                              key={choice.key}
+                              className={`w-full flex items-center gap-3 p-3 rounded-xl border text-xs leading-relaxed transition-all ${choiceStyle}`}
+                            >
+                              <span
+                                className={`h-5 w-5 rounded flex items-center justify-center text-[10px] font-bold border shrink-0 ${numStyle}`}
+                              >
+                                {choice.key}
+                              </span>
+                              <span className="flex-grow">{choice.val}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Seq Navigation */}
+                <div className="border-t border-slate-100 pt-4 flex justify-between">
+                  <button
+                    type="button"
+                    onClick={() => selectGroup(Math.max(0, currentGroupIdx - 1))}
+                    disabled={currentGroupIdx === 0}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-30 cursor-pointer flex items-center gap-1"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    Nhóm trước
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => selectGroup(Math.min(groups.length - 1, currentGroupIdx + 1))}
+                    disabled={currentGroupIdx === groups.length - 1}
+                    className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs disabled:opacity-30 cursor-pointer flex items-center gap-1"
+                  >
+                    Nhóm sau
+                    <ChevronRight className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Collapsable Transcript & Explanation */}
+              <div className="bg-white/80 border border-white/20 backdrop-blur-sm rounded-3xl shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setShowExplanation(!showExplanation)}
+                  className="w-full flex items-center justify-between p-6 text-sm font-bold text-slate-800 hover:bg-slate-50 transition-colors border-b border-slate-50 cursor-pointer"
+                >
+                  <span className="flex items-center gap-2">
+                    <Globe className="h-4.5 w-4.5 text-purple-600" />
+                    Xem lời thoại & giải thích chi tiết (Transcript & Explanation)
+                  </span>
+                  <ChevronRight
+                    className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
+                      showExplanation ? "rotate-90" : ""
+                    }`}
+                  />
+                </button>
+
+                {showExplanation && (
+                  <div className="p-6 space-y-6 bg-slate-50/50 border-t border-slate-100">
+                    {/* Transcript English with word lookup */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Lời thoại tiếng Anh (Click vào từ để tra từ điển):
+                      </h4>
+                      <div className="bg-white border border-slate-200 p-4 rounded-2xl text-xs leading-loose font-medium text-slate-700 select-none shadow-xs">
+                        {currentGroup.transcript_text.split(/\s+/).map((word, idx) => (
+                          <span
+                            key={idx}
+                            onClick={(e) => handleWordClick(e, word)}
+                            className="word-span inline-block mr-1.5 cursor-pointer hover:text-purple-600 transition-colors"
                           >
-                            {rate.toFixed(2)}x
-                          </button>
+                            {word}
+                          </span>
                         ))}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 text-[9px] text-slate-400 mt-1 border-t border-slate-200/50 pt-2 font-medium">
-                      <Info className="h-3 w-3 shrink-0" />
-                      <span>
-                        Phím tắt: <b>Space</b> (Play/Pause), <b>Shift+Tab</b> / <b>Ctrl+⬅</b> (Tua lùi 3s)
-                      </span>
+                    {/* Translation Vietnamese */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Bản dịch Việt ngữ:
+                      </h4>
+                      <div className="bg-purple-50/20 border border-purple-100/30 p-4 rounded-2xl text-xs leading-relaxed text-slate-650 font-medium">
+                        {currentGroup.translation_vi}
+                      </div>
+                    </div>
+
+                    {/* Explanations for each question */}
+                    <div className="space-y-2">
+                      <h4 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                        Giải thích chi tiết đáp án:
+                      </h4>
+                      <div className="space-y-3 bg-white border border-slate-200 p-4 rounded-2xl shadow-xs">
+                        {currentGroup.questions.map((q) => (
+                          <div key={q.id} className="text-xs text-slate-650 leading-relaxed border-b border-slate-100 pb-2.5 last:border-0 last:pb-0">
+                            <span className="font-bold text-slate-800 block mb-1">
+                              Câu {q.question_number} (Đáp án: {q.correct_answer})
+                            </span>
+                            <p>{q.explanation || "Không có giải thích chi tiết cho câu hỏi này."}</p>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
+                )}
+              </div>
+            </div>
 
-                  {/* Dictation Phase or Review Phase */}
-                  {reviewPhase === "dictation" ? (
-                    <form onSubmit={handleReviewDictationSubmit} className="flex flex-col gap-4">
-                      <div className="flex flex-col gap-2">
-                        <label className="text-xs font-bold text-slate-600">
-                          Nghe kỹ audio và chép chính tả transcript tại đây:
-                        </label>
-                        <textarea
-                          value={dictationInput}
-                          onChange={(e) => setDictationInput(e.target.value)}
-                          placeholder="Gõ chính tả..."
-                          className="w-full min-h-32 p-4 rounded-xl border border-slate-200 focus:border-purple-500 focus:ring-2 focus:ring-purple-200 text-xs leading-relaxed focus:outline-none transition-all"
-                          autoFocus
-                          disabled={isSavingReview}
-                        />
-                      </div>
+            {/* Right Column: Question Map Grid (4 cols) */}
+            <div className="lg:col-span-4 bg-white/80 border border-white/20 backdrop-blur-sm p-6 rounded-3xl shadow-sm flex flex-col gap-4">
+              <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center gap-1.5">
+                <ClipboardList className="h-4 w-4 text-purple-600" />
+                Bản đồ câu hỏi ({totalQuestionsCount} câu)
+              </h3>
 
-                      <div className="flex justify-end pt-2 border-t border-slate-100">
-                        <button
-                          type="submit"
-                          disabled={!dictationInput.trim() || isSavingReview}
-                          className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 disabled:bg-purple-400 text-white font-bold text-xs flex items-center gap-1 shadow-sm transition-all cursor-pointer"
-                        >
-                          {isSavingReview ? (
-                            <>
-                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                              Đang lưu...
-                            </>
-                          ) : (
-                            <>
-                              Nộp bài chép
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </>
-                          )}
-                        </button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div className="flex flex-col gap-4">
-                      {accuracy !== null && (
-                        <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-100 p-4 rounded-2xl flex items-center justify-between">
-                          <div>
-                            <h4 className="text-[10px] font-bold text-slate-500">Độ chính xác chép sửa sai</h4>
-                            <p className="text-lg font-black text-slate-900 mt-1">
-                              {accuracy}% <span className="text-[11px] font-normal text-slate-400">chính xác</span>
-                            </p>
-                          </div>
-                          <div
-                            className={`h-9 w-9 rounded-full flex items-center justify-center font-extrabold text-[11px] border-2 ${
-                              accuracy === 100
-                                ? "border-green-500 bg-green-50 text-green-600"
-                                : "border-rose-500 bg-rose-50 text-rose-600"
-                            }`}
-                          >
-                            {accuracy}%
-                          </div>
-                        </div>
-                      )}
+              <div className="grid grid-cols-5 gap-2 overflow-y-auto max-h-[420px] pr-1">
+                {groups.flatMap((g, gIdx) =>
+                  g.questions.map((q) => {
+                    const userAns = selectedAnswers[q.id] || null;
+                    const isCorrect = userAns === q.correct_answer;
+                    const isAnswered = !!userAns;
+                    const isActive = gIdx === currentGroupIdx;
 
-                      {/* Display comparison with dictionary onClick */}
-                      <div className="space-y-2">
-                        <h4 className="text-[10px] font-bold text-slate-500 uppercase">Transcript (Click vào từ để dịch):</h4>
-                        <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl text-xs leading-loose font-medium select-none">
-                          {dictationResult?.map((item, idx) => {
-                            let styleClass = "text-slate-700";
-                            if (item.status === "correct") {
-                              styleClass = "text-green-500 hover:text-green-600 font-semibold";
-                            } else if (item.status === "incorrect") {
-                              styleClass = "text-red-500 underline decoration-red-500 hover:text-red-600";
-                            } else if (item.status === "missing") {
-                              styleClass = "text-yellow-700 bg-yellow-100 px-1 rounded hover:bg-yellow-250/50";
-                            }
-                            return (
-                              <span
-                                key={idx}
-                                onClick={(e) => handleWordClick(e, item.word)}
-                                className="word-span inline-block mr-1.5 cursor-pointer transition-colors"
-                              >
-                                <span className={styleClass}>{item.word}</span>
-                              </span>
-                            );
-                          })}
-                        </div>
-                      </div>
+                    let btnStyle = "bg-slate-100 border border-slate-200 text-slate-600 hover:bg-slate-200";
 
-                      {/* Translate Toggle */}
-                      <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
-                        <button
-                          type="button"
-                          onClick={() => setShowTranslation(!showTranslation)}
-                          className="self-start text-[11px] font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 cursor-pointer"
-                        >
-                          <Globe className="h-3.5 w-3.5" />
-                          {showTranslation ? "Ẩn dịch tiếng Việt" : "Xem dịch tiếng Việt"}
-                        </button>
-                        {showTranslation && (
-                          <div className="bg-purple-50/20 border border-purple-100/30 p-4 rounded-xl text-xs text-slate-600 leading-relaxed">
-                            <p className="font-bold text-purple-700 mb-1">🗣️ Bản dịch Việt ngữ:</p>
-                            <p>{groups[reviewGroupIdx].translation_vi}</p>
-                          </div>
-                        )}
-                      </div>
+                    if (isCorrect) {
+                      btnStyle = "bg-green-500 text-white shadow-xs border border-green-600 hover:bg-green-600";
+                    } else if (isAnswered) {
+                      btnStyle = "bg-rose-500 text-white shadow-xs border border-rose-600 hover:bg-rose-600";
+                    }
 
-                      {/* Control buttons */}
-                      <div className="flex justify-between items-center border-t border-slate-100 pt-3 mt-2">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setReviewPhase("dictation");
-                            setDictationInput("");
-                            setDictationResult(null);
-                          }}
-                          className="px-4 py-2 rounded-xl border border-slate-200 text-slate-600 font-bold text-xs hover:bg-slate-50 cursor-pointer"
-                        >
-                          Chép lại (Retry)
-                        </button>
+                    return (
+                      <button
+                        key={q.id}
+                        type="button"
+                        onClick={() => selectGroup(gIdx)}
+                        className={`h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-pointer ${btnStyle} ${
+                          isActive ? "ring-3 ring-purple-600 ring-offset-2" : ""
+                        }`}
+                      >
+                        {q.question_number}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
 
-                        <button
-                          type="button"
-                          onClick={() => setReviewGroupIdx(null)}
-                          className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs cursor-pointer flex items-center gap-1"
-                        >
-                          Quay lại danh sách câu sai
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
+              {/* Legend */}
+              <div className="border-t border-slate-100 pt-3 flex flex-col gap-1.5 text-[10px] text-slate-500 font-semibold">
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded bg-green-500" />
+                  <span>Đúng</span>
                 </div>
-              )}
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded bg-rose-500" />
+                  <span>Sai</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="h-2.5 w-2.5 rounded bg-slate-100 border border-slate-200" />
+                  <span>Chưa trả lời</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
