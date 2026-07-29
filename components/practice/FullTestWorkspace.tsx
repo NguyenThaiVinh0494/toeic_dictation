@@ -79,10 +79,12 @@ export default function FullTestWorkspace({ testId, groups, mode = "full" }: Ful
 
   // Timer states
   const [timeLeft, setTimeLeft] = useState(maxTime);
+  const [prevMaxTime, setPrevMaxTime] = useState(maxTime);
 
-  useEffect(() => {
+  if (prevMaxTime !== maxTime) {
+    setPrevMaxTime(maxTime);
     setTimeLeft(maxTime);
-  }, [maxTime]);
+  }
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTestStarted, setIsTestStarted] = useState(false);
