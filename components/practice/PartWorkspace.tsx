@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import Link from "next/link";
 import {
@@ -33,6 +33,7 @@ export interface Question {
   option_d: string | null;
   correct_answer: CorrectAnswerOption;
   explanation: string | null;
+  useful_phrases: string | null;
 }
 
 export interface QuestionGroup {
@@ -41,9 +42,12 @@ export interface QuestionGroup {
   part_type: string;
   audio_url: string;
   image_url: string | null;
+  image_url_2?: string | null;
+  image_url_3?: string | null;
   reading_passage_text: string | null;
   transcript_text: string;
   translation_vi: string;
+  passage_translation: string | null;
   questions: Question[];
 }
 
@@ -98,6 +102,14 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
   const dictCache = useRef<Record<string, { ipa?: string; definition?: string }>>({});
 
   const currentGroup = groups[currentGroupIdx];
+  const imageUrls = useMemo(() => {
+    if (!currentGroup) return [];
+    return [
+      currentGroup.image_url,
+      currentGroup.image_url_2,
+      currentGroup.image_url_3,
+    ].filter(Boolean) as string[];
+  }, [currentGroup]);
 
   // Auto-focus textarea in dictation phase
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -465,13 +477,28 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
           </div>
 
           {/* Picture display */}
-          {currentGroup.image_url ? (
-            <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 shadow-xs flex items-center justify-center">
-              <img
-                src={currentGroup.image_url}
-                alt="TOEIC Listening Practice"
-                className="object-contain w-full h-full"
-              />
+          {imageUrls.length > 0 ? (
+            <div className="flex flex-col gap-4 w-full">
+              {imageUrls.map((url: string, idx: number) => (
+                <div
+                  key={idx}
+                  className={`relative w-full rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-xs bg-white ${
+                    ["part-6", "part-7", "part_6", "part_7"].includes(partId)
+                      ? "p-4 max-h-[550px]"
+                      : "aspect-4/3 bg-slate-100"
+                  }`}
+                >
+                  <img
+                    src={url}
+                    alt={`Question visual resource ${idx + 1}`}
+                    className={`object-contain ${
+                      ["part-6", "part-7", "part_6", "part_7"].includes(partId)
+                        ? "max-h-[500px] w-auto h-auto"
+                        : "w-full h-full"
+                    }`}
+                  />
+                </div>
+              ))}
             </div>
           ) : partId === "part-1" ? (
             <div className="aspect-4/3 w-full rounded-2xl bg-purple-50/50 border border-dashed border-purple-200 flex flex-col items-center justify-center text-center p-6 text-slate-400 text-xs">
@@ -689,6 +716,11 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
                           Giải thích câu Q{q.question_number}:
                         </div>
                         <p>{q.explanation}</p>
+                        {q.useful_phrases && (
+                          <div className="mt-2 p-3 bg-purple-50/50 rounded-xl border border-purple-100/50 text-[11px] text-purple-700 font-medium">
+                            <span className="font-bold text-purple-800">Từ vựng & cấu trúc nổi bật:</span> {q.useful_phrases}
+                          </div>
+                        )}
                       </motion.div>
                     )}
                   </div>
@@ -871,12 +903,18 @@ export default function PartWorkspace({ partId, testId, groups }: PartWorkspaceP
                   <motion.div
                     initial={{ height: 0, opacity: 0 }}
                     animate={{ height: "auto", opacity: 1 }}
-                    className="bg-purple-50/20 border border-purple-100/30 p-4 rounded-xl text-xs text-slate-600 leading-relaxed font-medium"
+                    className="bg-purple-50/20 border border-purple-100/30 p-4 rounded-xl text-xs text-slate-655 leading-relaxed font-medium whitespace-pre-line"
                   >
                     <div className="font-bold text-purple-700 flex items-center gap-1 mb-1">
-                      🗣️ Bản dịch Việt ngữ:
+                      {["part_5", "part_6", "part_7"].includes(currentGroup.part_type)
+                        ? "🗣️ Bản dịch đoạn văn Việt ngữ:"
+                        : "🗣️ Bản dịch lời thoại Việt ngữ:"}
                     </div>
-                    <p>{currentGroup.translation_vi}</p>
+                    <p>
+                      {["part_5", "part_6", "part_7"].includes(currentGroup.part_type)
+                        ? (currentGroup.passage_translation || currentGroup.translation_vi)
+                        : currentGroup.translation_vi}
+                    </p>
                   </motion.div>
                 )}
               </div>

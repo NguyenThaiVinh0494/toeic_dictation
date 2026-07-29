@@ -162,7 +162,8 @@ interface SubmitAnswerInput {
 export async function submitFullTest(
   testId: string,
   timeSpent: number,
-  answers: SubmitAnswerInput[]
+  answers: SubmitAnswerInput[],
+  testMode: "listening" | "reading" | "full" = "full"
 ): Promise<ActionResponse<{ sessionId: string; score: number }>> {
   try {
     const { supabase, user } = await getAuthenticatedUser();
@@ -179,6 +180,7 @@ export async function submitFullTest(
         status: "completed",
         score,
         time_spent: timeSpent,
+        test_mode: testMode,
       })
       .select("id")
       .single();

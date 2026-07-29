@@ -18,6 +18,7 @@ import {
   ClipboardList
 } from "lucide-react";
 import AnimateWrapper from "@/components/AnimateWrapper";
+import { calculateListeningScore, calculateReadingScore } from "@/utils/toeic";
 
 interface Profile {
   id: string;
@@ -33,6 +34,7 @@ interface Session {
   time_spent: number;
   status: string;
   created_at: string;
+  test_mode?: string;
   tests: {
     title: string;
   } | null;
@@ -73,12 +75,7 @@ interface ProgressDashboardProps {
   totalQuestionsAnswered: number;
 }
 
-// Convert correct answers count to an estimated TOEIC Listening score (scale 5 - 495)
-function calculateToeicScore(correctCount: number): number {
-  if (correctCount <= 6) return 5;
-  if (correctCount >= 96) return 495;
-  return 5 + Math.round(((correctCount - 6) / 90) * 490);
-}
+// TOEIC Score calculations are imported from @/utils/toeic
 
 export default function ProgressDashboard({
   profile,
@@ -127,18 +124,64 @@ export default function ProgressDashboard({
           minute: "2-digit",
         });
 
+        const mode = s.test_mode || "full";
+        let modeLabel = "Full Test";
+        let totalQuestions = 200;
+        let estimatedScore = 0;
+        let maxEstimatedScore = 990;
+
+        if (mode === "listening") {
+          modeLabel = "Listening";
+          totalQuestions = 100;
+          estimatedScore = calculateListeningScore(s.score);
+          maxEstimatedScore = 495;
+        } else if (mode === "reading") {
+          modeLabel = "Reading";
+          totalQuestions = 100;
+          estimatedScore = calculateReadingScore(s.score);
+          maxEstimatedScore = 495;
+        } else {
+          // Full test mode (200 questions). Split listening/reading correct answers.
+          const sessionProg = progressBySession[s.id] || [];
+          let listeningCorrect = 0;
+          let readingCorrect = 0;
+
+          if (sessionProg.length > 0) {
+            sessionProg.forEach((p) => {
+              if (p.is_correct) {
+                const part = p.questions?.question_groups?.part_type;
+                if (part && ["part_1", "part_2", "part_3", "part_4"].includes(part)) {
+                  listeningCorrect++;
+                } else if (part && ["part_5", "part_6", "part_7"].includes(part)) {
+                  readingCorrect++;
+                }
+              }
+            });
+          } else {
+            // Fallback approximation if no detail rows
+            listeningCorrect = Math.min(100, Math.round(s.score / 2));
+            readingCorrect = Math.max(0, Math.min(100, s.score - listeningCorrect));
+          }
+
+          estimatedScore = calculateListeningScore(listeningCorrect) + calculateReadingScore(readingCorrect);
+          maxEstimatedScore = 990;
+        }
+
         return {
           id: s.id,
           title: testTitle,
           date: dateStr,
           timeSpent: s.time_spent,
           score: s.score,
-          estimatedScore: calculateToeicScore(s.score),
+          totalQuestions,
+          estimatedScore,
+          maxEstimatedScore,
+          modeLabel,
           createdAt: new Date(s.created_at).getTime(),
         };
       })
       .sort((a, b) => b.createdAt - a.createdAt);
-  }, [sessions]);
+  }, [sessions, progressBySession]);
 
   // Classify and aggregate Part Practice history
   const partPracticeHistory = useMemo(() => {
@@ -366,6 +409,7 @@ export default function ProgressDashboard({
                           <thead>
                             <tr className="border-b border-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wider">
                               <th className="pb-3 pl-2">Đề thi</th>
+                              <th className="pb-3">Chế độ</th>
                               <th className="pb-3">Ngày làm</th>
                               <th className="pb-3">Thời gian</th>
                               <th className="pb-3">Số câu đúng</th>
@@ -376,17 +420,28 @@ export default function ProgressDashboard({
                             {fullTestHistory.map((s) => (
                               <tr key={s.id} className="hover:bg-slate-50/50 transition-colors">
                                 <td className="py-4 pl-2 font-bold text-slate-900">{s.title}</td>
+                                <td className="py-4">
+                                  <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border ${
+                                    s.modeLabel === "Listening"
+                                      ? "bg-blue-50 text-blue-700 border-blue-100"
+                                      : s.modeLabel === "Reading"
+                                      ? "bg-teal-50 text-teal-700 border-teal-100"
+                                      : "bg-purple-50 text-purple-700 border-purple-100"
+                                  }`}>
+                                    {s.modeLabel}
+                                  </span>
+                                </td>
                                 <td className="py-4 text-slate-500">{s.date}</td>
                                 <td className="py-4 text-slate-500 flex items-center gap-1">
                                   <Clock className="h-3 w-3" />
                                   {formatTime(s.timeSpent)}
                                 </td>
                                 <td className="py-4 font-bold text-slate-800">
-                                  {s.score}/100 câu
+                                  {s.score}/{s.totalQuestions} câu
                                 </td>
                                 <td className="py-4 pr-2 text-right">
                                   <span className="inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-extrabold bg-purple-50 text-purple-700 border border-purple-100 shadow-2xs">
-                                    {s.estimatedScore}/495
+                                    {s.estimatedScore}/{s.maxEstimatedScore}
                                   </span>
                                 </td>
                               </tr>

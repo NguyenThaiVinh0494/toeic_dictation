@@ -94,7 +94,7 @@ export default async function FullTestSelectionPage() {
               </span>
               <h1 className="text-2xl font-extrabold text-slate-900 mt-1">Luyện đề thi thử (Full Test)</h1>
               <p className="text-sm text-slate-600 mt-2 leading-relaxed max-w-2xl">
-                Làm trọn vẹn cả 4 phần Listening chuẩn format TOEIC liên tục trong 45 phút. Rèn luyện sự tập trung cao độ, khả năng quản lý thời gian và phân tích transcript chép chính tả chi tiết sau khi nộp bài.
+                Lựa chọn luyện tập theo từng phần Listening, Reading riêng biệt hoặc thực hiện bài thi thử Full Test tích hợp đầy đủ. Rèn luyện sự tập trung cao độ, quản lý thời gian và phân tích lỗi sai chi tiết sau khi nộp bài.
               </p>
             </div>
           </div>
@@ -138,7 +138,7 @@ export default async function FullTestSelectionPage() {
                         {test.bookTitle}
                       </span>
                       <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-100 uppercase">
-                        45 phút
+                        Nhiều chế độ
                       </span>
                     </div>
                     <h3 className="text-base font-bold text-slate-950 group-hover:text-purple-600 transition-colors">
@@ -146,15 +146,9 @@ export default async function FullTestSelectionPage() {
                     </h3>
                     
                     <p className="text-xs text-slate-500 mt-3 leading-relaxed">
-                      Bài thi thử đầy đủ gồm cả 4 phần Listening. Sau khi làm bài xong bạn có thể chuyển sang nghe chép chính tả tất cả các câu sai.
+                      Luyện tập 3 chế độ: Luyện Listening (45p), Luyện Reading (75p) và thi thử Full Test (120p) chuẩn format TOEIC.
                     </p>
 
-                    <div className="flex gap-4 mt-4 text-xs text-slate-500">
-                      <div className="flex flex-col">
-                        <span className="font-semibold text-slate-700 text-sm">{test.totalQuestions || 100}</span>
-                        <span>Tổng số câu hỏi</span>
-                      </div>
-                    </div>
                   </div>
 
                   <div className="mt-6 pt-4 border-t border-slate-50 flex items-center justify-end relative z-20 pointer-events-none">

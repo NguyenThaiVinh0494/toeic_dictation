@@ -21,6 +21,7 @@ import {
 import { cleanWord, diffWords, DiffResult } from "@/utils/diff";
 import { submitFullTest, saveQuestionProgress } from "@/app/actions/practice";
 import { CorrectAnswerOption } from "@/types/database";
+import { calculateListeningScore, calculateReadingScore } from "@/utils/toeic";
 
 export interface Question {
   id: string;
@@ -41,6 +42,8 @@ export interface QuestionGroup {
   part_type: string;
   audio_url: string;
   image_url: string | null;
+  image_url_2?: string | null;
+  image_url_3?: string | null;
   reading_passage_text: string | null;
   transcript_text: string;
   translation_vi: string;
@@ -51,6 +54,7 @@ export interface QuestionGroup {
 interface FullTestWorkspaceProps {
   testId: string;
   groups: QuestionGroup[];
+  mode?: "listening" | "reading" | "full";
 }
 
 // Convert correct answers count to an estimated TOEIC Listening score (scale 5 - 495)
@@ -61,14 +65,25 @@ function calculateToeicScore(correctCount: number): number {
   return 5 + Math.round(((correctCount - 6) / 90) * 490);
 }
 
-export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceProps) {
+export default function FullTestWorkspace({ testId, groups, mode = "full" }: FullTestWorkspaceProps) {
   // Mode: 'testing' | 'result'
   const [status, setStatus] = useState<"testing" | "result">("testing");
   const [currentGroupIdx, setCurrentGroupIdx] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<string, CorrectAnswerOption>>({});
 
+  const maxTime = useMemo(() => {
+    if (mode === "listening") return 2700;
+    if (mode === "reading") return 4500;
+    return 7200;
+  }, [mode]);
+
   // Timer states
-  const [timeLeft, setTimeLeft] = useState(2700); // 45 minutes in seconds
+  const [timeLeft, setTimeLeft] = useState(maxTime);
+
+  useEffect(() => {
+    setTimeLeft(maxTime);
+  }, [maxTime]);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isTestStarted, setIsTestStarted] = useState(false);
 
@@ -101,7 +116,45 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
   const dictCache = useRef<Record<string, { ipa?: string; definition?: string }>>({});
 
   const currentGroup = groups[currentGroupIdx];
+  const imageUrls = useMemo(() => {
+    if (!currentGroup) return [];
+    return [
+      currentGroup.image_url,
+      currentGroup.image_url_2,
+      currentGroup.image_url_3,
+    ].filter(Boolean) as string[];
+  }, [currentGroup]);
+
   const totalQuestionsCount = groups.reduce((acc, g) => acc + g.questions.length, 0);
+
+  const { listeningCorrect, readingCorrect } = useMemo(() => {
+    let listeningCorrect = 0;
+    let readingCorrect = 0;
+    for (const group of groups) {
+      const isListening = ["part_1", "part_2", "part_3", "part_4"].includes(group.part_type);
+      for (const q of group.questions) {
+        const selected = selectedAnswers[q.id] || null;
+        if (selected === q.correct_answer) {
+          if (isListening) {
+            listeningCorrect++;
+          } else {
+            readingCorrect++;
+          }
+        }
+      }
+    }
+    return { listeningCorrect, readingCorrect };
+  }, [groups, selectedAnswers]);
+
+  const isListeningPart = useMemo(() => {
+    if (!currentGroup) return false;
+    return ["part_1", "part_2", "part_3", "part_4"].includes(currentGroup.part_type);
+  }, [currentGroup]);
+
+  const isNavLocked = useMemo(() => {
+    if (status !== "testing") return false;
+    return mode === "listening" || (mode === "full" && isListeningPart);
+  }, [status, mode, isListeningPart]);
 
   // Audio actions wrapped in useCallback
   const togglePlay = useCallback(() => {
@@ -166,11 +219,11 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
       }
     }
 
-    const secondsSpent = 2700 - timeLeft;
+    const secondsSpent = maxTime - timeLeft;
     setTimeSpent(secondsSpent);
 
     try {
-      const response = await submitFullTest(testId, secondsSpent, answersList);
+      const response = await submitFullTest(testId, secondsSpent, answersList, mode);
       if (response.success && response.data) {
         setScore(response.data.score);
         setSessionId(response.data.sessionId);
@@ -184,7 +237,7 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
     } finally {
       setIsSubmitting(false);
     }
-  }, [isSubmitting, groups, selectedAnswers, timeLeft, testId]);
+  }, [isSubmitting, groups, selectedAnswers, timeLeft, testId, maxTime, mode]);
 
   // 1. Timer Countdown Effect (placed after handleExamSubmit is declared)
   useEffect(() => {
@@ -383,8 +436,14 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
         return "Part 3";
       case "part_4":
         return "Part 4";
+      case "part_5":
+        return "Part 5";
+      case "part_6":
+        return "Part 6";
+      case "part_7":
+        return "Part 7";
       default:
-        return "Listening";
+        return "TOEIC";
     }
   };
 
@@ -463,16 +522,26 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
           </div>
           
           <div className="space-y-2">
-            <h1 className="text-2xl font-black text-slate-900">Bài Thi Thử TOEIC Listening</h1>
+            <h1 className="text-2xl font-black text-slate-900">
+              {mode === "listening" && "Bài Thi Thử TOEIC Listening"}
+              {mode === "reading" && "Bài Thi Thử TOEIC Reading"}
+              {mode === "full" && "Bài Thi Thử Full TOEIC"}
+            </h1>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
-              Chuẩn bị bước vào phòng thi thử nghiêm ngặt mô phỏng 100% môi trường thi thật TOEIC Listening.
+              {mode === "listening" && "Chuẩn bị bước vào phòng thi thử nghiêm ngặt mô phỏng 100% môi trường thi thật TOEIC Listening."}
+              {mode === "reading" && "Chuẩn bị bước vào phòng thi thử nghiêm ngặt mô phỏng 100% môi trường thi thật TOEIC Reading."}
+              {mode === "full" && "Chuẩn bị bước vào phòng thi thử nghiêm ngặt mô phỏng 100% môi trường thi thật TOEIC Full Test."}
             </p>
           </div>
 
           <div className="w-full grid grid-cols-2 gap-4 my-2">
             <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Thời gian làm bài</span>
-              <span className="text-xl font-extrabold text-slate-900 mt-1 block">45 phút</span>
+              <span className="text-xl font-extrabold text-slate-900 mt-1 block">
+                {mode === "listening" && "45 phút"}
+                {mode === "reading" && "75 phút"}
+                {mode === "full" && "120 phút"}
+              </span>
             </div>
             <div className="bg-slate-50 border border-slate-100 p-4 rounded-2xl text-center">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Số lượng câu hỏi</span>
@@ -486,11 +555,31 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
               NỘI QUY PHÒNG THI (EXAM MODE)
             </h3>
             <ul className="text-xs text-slate-600 space-y-2 list-disc list-inside">
-              <li>Âm thanh sẽ phát liên tục tự động từ câu 1 đến câu cuối cùng.</li>
-              <li>Bạn <strong className="text-rose-650">không thể</strong> tạm dừng, tua lại hoặc tua nhanh âm thanh.</li>
-              <li>Mỗi nhóm câu hỏi chỉ được nghe <strong className="text-rose-650">duy nhất 1 lần</strong>.</li>
-              <li>Đồng hồ sẽ đếm ngược liên tục. Khi hết 45 phút, hệ thống sẽ tự động nộp bài.</li>
-              <li>Hãy đảm bảo tai nghe và kết nối internet của bạn hoạt động ổn định trước khi bắt đầu.</li>
+              {mode === "listening" && (
+                <>
+                  <li>Âm thanh sẽ phát liên tục tự động từ câu 1 đến câu cuối cùng.</li>
+                  <li>Bạn <strong className="text-rose-650">không thể</strong> tạm dừng, tua lại hoặc tua nhanh âm thanh.</li>
+                  <li>Mỗi nhóm câu hỏi chỉ được nghe <strong className="text-rose-650">duy nhất 1 lần</strong>.</li>
+                  <li>Đồng hồ sẽ đếm ngược liên tục. Khi hết 45 phút, hệ thống sẽ tự động nộp bài.</li>
+                  <li>Hãy đảm bảo tai nghe và kết nối internet của bạn hoạt động ổn định trước khi bắt đầu.</li>
+                </>
+              )}
+              {mode === "reading" && (
+                <>
+                  <li>Bạn có thể tự do di chuyển giữa các câu hỏi trong phần thi Reading.</li>
+                  <li>Hãy đọc kỹ các đoạn văn, hình ảnh và chọn đáp án chính xác.</li>
+                  <li>Đồng hồ sẽ đếm ngược liên tục. Khi hết 75 phút, hệ thống sẽ tự động nộp bài.</li>
+                  <li>Hãy đảm bảo kết nối internet ổn định và tập trung cao độ trước khi bắt đầu.</li>
+                </>
+              )}
+              {mode === "full" && (
+                <>
+                  <li>Phần thi Listening (Part 1 - 4): Âm thanh phát liên tục tự động, không thể tạm dừng hay tua.</li>
+                  <li>Phần thi Reading (Part 5 - 7): Tự do di chuyển giữa các câu hỏi sau khi hoàn thành phần Listening.</li>
+                  <li>Đồng hồ sẽ đếm ngược liên tục. Khi hết 120 phút, hệ thống sẽ tự động nộp bài.</li>
+                  <li>Hãy chuẩn bị đầy đủ tai nghe và thời gian tập trung làm bài liên tục.</li>
+                </>
+              )}
             </ul>
           </div>
 
@@ -553,14 +642,29 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 </span>
               </div>
 
-              {/* Picture display (Part 1, Part 3 & 4 graphics) */}
-              {currentGroup.image_url && (
-                <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center shadow-xs">
-                  <img
-                    src={currentGroup.image_url}
-                    alt="Question visual resource"
-                    className="object-contain w-full h-full"
-                  />
+              {/* Picture display (Part 1, Part 3 & 4 graphics, Part 6 & 7 reading passages) */}
+              {imageUrls.length > 0 && (
+                <div className="flex flex-col gap-4 w-full">
+                  {imageUrls.map((url, idx) => (
+                    <div
+                      key={idx}
+                      className={`relative w-full rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-xs bg-white ${
+                        ["part_6", "part_7"].includes(currentGroup.part_type)
+                          ? "p-4 max-h-[550px]"
+                          : "aspect-4/3 bg-slate-100"
+                      }`}
+                    >
+                      <img
+                        src={url}
+                        alt={`Question visual resource ${idx + 1}`}
+                        className={`object-contain ${
+                          ["part_6", "part_7"].includes(currentGroup.part_type)
+                            ? "max-h-[500px] w-auto h-auto"
+                            : "w-full h-full"
+                        }`}
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
 
@@ -572,36 +676,38 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
               )}
 
               {/* Audio controller block */}
-              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 mt-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
-                    {formatTime(currentTime)}
-                  </span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={duration || 0}
-                    step={0.1}
-                    value={currentTime}
-                    disabled={true}
-                    className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-not-allowed accent-purple-600 opacity-60"
-                  />
-                  <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
-                    {formatTime(duration)}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-xl">
-                    <Info className="h-3.5 w-3.5 animate-pulse shrink-0 text-amber-600" />
-                    <span>🔊 Âm thanh phát tự động (Không thể tạm dừng/tua)</span>
+              {isListeningPart && (
+                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 mt-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
+                      {formatTime(currentTime)}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={duration || 0}
+                      step={0.1}
+                      value={currentTime}
+                      disabled={true}
+                      className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-not-allowed accent-purple-600 opacity-60"
+                    />
+                    <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
+                      {formatTime(duration)}
+                    </span>
                   </div>
 
-                  <div className="text-[10px] font-bold text-slate-400 bg-white border border-slate-150 px-2 py-1 rounded-lg">
-                    Tốc độ: 1.0x
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-xl">
+                      <Info className="h-3.5 w-3.5 animate-pulse shrink-0 text-amber-600" />
+                      <span>🔊 Âm thanh phát tự động (Không thể tạm dừng/tua)</span>
+                    </div>
+
+                    <div className="text-[10px] font-bold text-slate-400 bg-white border border-slate-150 px-2 py-1 rounded-lg">
+                      Tốc độ: 1.0x
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
             {/* Questions area */}
@@ -674,8 +780,12 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 <button
                   type="button"
                   onClick={() => selectGroup(Math.max(0, currentGroupIdx - 1))}
-                  disabled={true}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs disabled:opacity-40 cursor-not-allowed flex items-center gap-1"
+                  disabled={isNavLocked || currentGroupIdx === 0}
+                  className={`px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs flex items-center gap-1 transition-all ${
+                    (isNavLocked || currentGroupIdx === 0)
+                      ? "opacity-40 cursor-not-allowed"
+                      : "cursor-pointer hover:bg-slate-50 hover:text-purple-600 hover:border-purple-300"
+                  }`}
                 >
                   <ChevronLeft className="h-4 w-4" />
                   Nhóm trước
@@ -684,8 +794,12 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 <button
                   type="button"
                   onClick={() => selectGroup(Math.min(groups.length - 1, currentGroupIdx + 1))}
-                  disabled={true}
-                  className="px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs disabled:opacity-40 cursor-not-allowed flex items-center gap-1"
+                  disabled={isNavLocked || currentGroupIdx === groups.length - 1}
+                  className={`px-4 py-2 rounded-xl border border-slate-200 text-slate-650 font-bold text-xs flex items-center gap-1 transition-all ${
+                    (isNavLocked || currentGroupIdx === groups.length - 1)
+                      ? "opacity-40 cursor-not-allowed"
+                      : "cursor-pointer hover:bg-slate-50 hover:text-purple-600 hover:border-purple-300"
+                  }`}
                 >
                   Nhóm sau
                   <ChevronRight className="h-4 w-4" />
@@ -709,8 +823,11 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                     <button
                       key={q.id}
                       type="button"
-                      disabled={true}
-                      className={`h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all cursor-not-allowed opacity-90 ${
+                      disabled={isNavLocked}
+                      onClick={() => selectGroup(gIdx)}
+                      className={`h-9 rounded-lg flex items-center justify-center text-xs font-bold transition-all opacity-90 ${
+                        isNavLocked ? "cursor-not-allowed" : "cursor-pointer hover:scale-105"
+                      } ${
                         isActiveGroup
                           ? "ring-2 ring-purple-600 bg-purple-100 text-purple-700"
                           : isAnswered
@@ -743,36 +860,85 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
       {status === "result" && (
         <div className="flex flex-col gap-8">
           {/* Result Header & Scorecard */}
-          <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
-            <div className="flex flex-col gap-1.5">
-              <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
-                Kết quả bài thi thử
-              </h2>
-              <p className="text-xs text-slate-500">
-                Chúc mừng bạn đã hoàn thành bài thi TOEIC Listening! Hãy phân tích lỗi sai bên dưới.
-              </p>
-              {timeSpent !== null && (
-                <span className="text-[11px] font-bold text-slate-400 mt-2">
-                  Thời gian làm bài: {Math.floor(timeSpent / 60)} phút {timeSpent % 60} giây
-                </span>
-              )}
-            </div>
+          {mode === "full" ? (
+            <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-sm grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 items-center">
+              <div className="flex flex-col gap-1.5 lg:col-span-2">
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
+                  Kết quả bài thi thử
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Chúc mừng bạn đã hoàn thành bài thi thử TOEIC! Hãy phân tích lỗi sai bên dưới.
+                </p>
+                {timeSpent !== null && (
+                  <span className="text-[11px] font-bold text-slate-400 mt-2">
+                    Thời gian làm bài: {Math.floor(timeSpent / 60)} phút {timeSpent % 60} giây
+                  </span>
+                )}
+              </div>
 
-            <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
-              <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Số câu chính xác</h3>
-              <p className="text-3xl font-black text-slate-900 mt-1">
-                {score}/{totalQuestionsCount}
-              </p>
-            </div>
+              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Số câu chính xác</h3>
+                <p className="text-2xl font-black text-slate-900 mt-1">
+                  {score}/{totalQuestionsCount}
+                </p>
+              </div>
 
-            <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
-              <h3 className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Ước lượng điểm Listening</h3>
-              <p className="text-3xl font-black text-amber-600 mt-1">
-                {score !== null ? calculateToeicScore(score) : 0}/495
-              </p>
+              <div className="bg-gradient-to-br from-indigo-50/30 to-purple-50/30 border border-indigo-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
+                <h3 className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Listening | Reading</h3>
+                <p className="text-lg font-extrabold text-slate-800 mt-1">
+                  {calculateListeningScore(listeningCorrect)} | {calculateReadingScore(readingCorrect)}
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
+                <h3 className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">Tổng điểm ước lượng</h3>
+                <p className="text-2xl font-black text-amber-600 mt-1">
+                  {calculateListeningScore(listeningCorrect) + calculateReadingScore(readingCorrect)}/990
+                </p>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-white/80 border border-white/20 backdrop-blur-sm p-6 sm:p-8 rounded-3xl shadow-sm grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+              <div className="flex flex-col gap-1.5">
+                <h2 className="text-lg font-black text-slate-900 flex items-center gap-2">
+                  <Sparkles className="h-5 w-5 text-amber-500 animate-pulse" />
+                  Kết quả bài thi thử
+                </h2>
+                <p className="text-xs text-slate-500">
+                  {mode === "listening"
+                    ? "Chúc mừng bạn đã hoàn thành bài thi TOEIC Listening! Hãy phân tích lỗi sai bên dưới."
+                    : "Chúc mừng bạn đã hoàn thành bài thi TOEIC Reading! Hãy phân tích lỗi sai bên dưới."}
+                </p>
+                {timeSpent !== null && (
+                  <span className="text-[11px] font-bold text-slate-400 mt-2">
+                    Thời gian làm bài: {Math.floor(timeSpent / 60)} phút {timeSpent % 60} giây
+                  </span>
+                )}
+              </div>
+
+              <div className="bg-gradient-to-br from-purple-50 to-indigo-50 border border-purple-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
+                <h3 className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Số câu chính xác</h3>
+                <p className="text-3xl font-black text-slate-900 mt-1">
+                  {score}/{totalQuestionsCount}
+                </p>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-100/50 p-4 rounded-2xl text-center flex flex-col justify-center">
+                <h3 className="text-[10px] font-bold text-amber-800 uppercase tracking-wider">
+                  {mode === "listening" ? "Ước lượng điểm Listening" : "Ước lượng điểm Reading"}
+                </h3>
+                <p className="text-3xl font-black text-amber-600 mt-1">
+                  {score !== null
+                    ? mode === "listening"
+                      ? calculateListeningScore(score)
+                      : calculateReadingScore(score)
+                    : 0}
+                  /495
+                </p>
+              </div>
+            </div>
+          )}
 
           {/* Main Review Layout */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
@@ -789,14 +955,29 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                   </span>
                 </div>
 
-                {/* Picture display (Part 1, Part 3 & 4 graphics) */}
-                {currentGroup.image_url && (
-                  <div className="relative aspect-4/3 w-full rounded-2xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center shadow-xs">
-                    <img
-                      src={currentGroup.image_url}
-                      alt="Question visual resource"
-                      className="object-contain w-full h-full"
-                    />
+                {/* Picture display (Part 1, Part 3 & 4 graphics, Part 6 & 7 reading passages) */}
+                {imageUrls.length > 0 && (
+                  <div className="flex flex-col gap-4 w-full">
+                    {imageUrls.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className={`relative w-full rounded-2xl overflow-hidden border border-slate-100 flex items-center justify-center shadow-xs bg-white ${
+                          ["part_6", "part_7"].includes(currentGroup.part_type)
+                            ? "p-4 max-h-[550px]"
+                            : "aspect-4/3 bg-slate-100"
+                        }`}
+                      >
+                        <img
+                          src={url}
+                          alt={`Question visual resource ${idx + 1}`}
+                          className={`object-contain ${
+                            ["part_6", "part_7"].includes(currentGroup.part_type)
+                              ? "max-h-[500px] w-auto h-auto"
+                              : "w-full h-full"
+                          }`}
+                        />
+                      </div>
+                    ))}
                   </div>
                 )}
 
@@ -808,64 +989,66 @@ export default function FullTestWorkspace({ testId, groups }: FullTestWorkspaceP
                 )}
 
                 {/* Audio controller block */}
-                <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 mt-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
-                      {formatTime(currentTime)}
-                    </span>
-                    <input
-                      type="range"
-                      min={0}
-                      max={duration || 0}
-                      step={0.1}
-                      value={currentTime}
-                      onChange={(e) => {
-                        const newTime = parseFloat(e.target.value);
-                        setCurrentTime(newTime);
-                        if (audioRef.current) audioRef.current.currentTime = newTime;
-                      }}
-                      className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
-                    />
-                    <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
-                      {formatTime(duration)}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center justify-between">
+                {isListeningPart && (
+                  <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100 flex flex-col gap-3 mt-1">
                     <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={togglePlay}
-                        className="p-2 rounded-full bg-purple-600 text-white cursor-pointer hover:bg-purple-700"
-                      >
-                        {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white translate-x-0.5" />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => rewind(3)}
-                        className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 cursor-pointer hover:bg-slate-50"
-                        title="Lùi 3 giây (Shift + Tab hoặc Mũi tên trái)"
-                      >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </button>
+                      <span className="text-[10px] font-mono text-slate-500 w-10 shrink-0">
+                        {formatTime(currentTime)}
+                      </span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={duration || 0}
+                        step={0.1}
+                        value={currentTime}
+                        onChange={(e) => {
+                          const newTime = parseFloat(e.target.value);
+                          setCurrentTime(newTime);
+                          if (audioRef.current) audioRef.current.currentTime = newTime;
+                        }}
+                        className="flex-grow h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                      />
+                      <span className="text-[10px] font-mono text-slate-500 w-10 text-right shrink-0">
+                        {formatTime(duration)}
+                      </span>
                     </div>
 
-                    <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
-                      {[0.75, 1.0, 1.25].map((rate) => (
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
                         <button
-                          key={rate}
                           type="button"
-                          onClick={() => changePlaybackRate(rate)}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
-                            playbackRate === rate ? "bg-purple-600 text-white" : "text-slate-600"
-                          }`}
+                          onClick={togglePlay}
+                          className="p-2 rounded-full bg-purple-600 text-white cursor-pointer hover:bg-purple-700"
                         >
-                          {rate.toFixed(2)}x
+                          {isPlaying ? <Pause className="h-3.5 w-3.5 fill-white" /> : <Play className="h-3.5 w-3.5 fill-white translate-x-0.5" />}
                         </button>
-                      ))}
+                        <button
+                          type="button"
+                          onClick={() => rewind(3)}
+                          className="p-2 rounded-lg bg-white border border-slate-200 text-slate-600 cursor-pointer hover:bg-slate-50"
+                          title="Lùi 3 giây (Shift + Tab hoặc Mũi tên trái)"
+                        >
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex items-center bg-white border border-slate-200 rounded-lg p-1">
+                        {[0.75, 1.0, 1.25].map((rate) => (
+                          <button
+                            key={rate}
+                            type="button"
+                            onClick={() => changePlaybackRate(rate)}
+                            className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer ${
+                              playbackRate === rate ? "bg-purple-600 text-white" : "text-slate-600"
+                            }`}
+                          >
+                            {rate.toFixed(2)}x
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Questions review display */}

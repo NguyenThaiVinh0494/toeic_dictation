@@ -8,6 +8,7 @@ export interface Profile {
   avatar_url: string | null;
   role: UserRole;
   created_at: string; // Timestamptz
+  email?: string | null; // Authenticated user email
 }
 
 export interface Book {
@@ -29,9 +30,12 @@ export interface QuestionGroup {
   test_id: string; // UUID references tests
   audio_url: string;
   image_url: string | null;
+  image_url_2?: string | null;
+  image_url_3?: string | null;
   reading_passage_text: string | null;
   transcript_text: string;
   translation_vi: string;
+  passage_translation: string | null;
   created_at: string;
   part_type: string; // 'part_1', 'part_2', 'part_3', 'part_4'
 }
@@ -47,6 +51,7 @@ export interface Question {
   option_d: string | null; // Nullable for Part 2
   correct_answer: CorrectAnswerOption;
   explanation: string | null;
+  useful_phrases: string | null;
   created_at: string;
 }
 

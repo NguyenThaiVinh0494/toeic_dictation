@@ -27,6 +27,7 @@ export default async function ProgressPage() {
       time_spent,
       status,
       created_at,
+      test_mode,
       tests (
         title
       )
@@ -140,6 +141,7 @@ export default async function ProgressPage() {
       time_spent: s.time_spent,
       status: s.status,
       created_at: s.created_at,
+      test_mode: s.test_mode || "full",
       tests: s.tests ? { title } : null
     };
   });

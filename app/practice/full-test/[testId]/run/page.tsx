@@ -3,26 +3,25 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import AnimateWrapper from "@/components/AnimateWrapper";
-import PartWorkspace, { QuestionGroup } from "@/components/practice/PartWorkspace";
+import FullTestWorkspace, { QuestionGroup } from "@/components/practice/FullTestWorkspace";
 
 interface PageProps {
   params: Promise<{
-    partId: string;
     testId: string;
+  }>;
+  searchParams: Promise<{
+    mode?: string;
   }>;
 }
 
-export default async function PartWorkspacePage({ params }: PageProps) {
-  const { partId, testId } = await params;
-  const normalizedPartId = partId.startsWith("part-") ? partId : `part-${partId}`;
+export default async function FullTestWorkspacePage({ params, searchParams }: PageProps) {
+  const { testId } = await params;
+  const { mode: urlMode } = await searchParams;
+  
+  const mode = (urlMode === "listening" || urlMode === "reading" || urlMode === "full")
+    ? urlMode
+    : "full";
 
-  // Validate partId
-  const validParts = ["part-1", "part-2", "part-3", "part-4"];
-  if (!validParts.includes(normalizedPartId)) {
-    redirect("/practice");
-  }
-
-  const dbPartType = normalizedPartId.replace("-", "_");
   const supabase = await createClient();
 
   // Fetch test details
@@ -38,10 +37,10 @@ export default async function PartWorkspacePage({ params }: PageProps) {
     .maybeSingle();
 
   if (testError || !testData) {
-    redirect(`/practice/${partId}`);
+    redirect("/practice/full-test");
   }
 
-  // Fetch question groups for this test and part
+  // Fetch all question groups and questions for this test
   const { data: groupsData, error: groupsError } = await supabase
     .from("question_groups")
     .select(`
@@ -70,15 +69,32 @@ export default async function PartWorkspacePage({ params }: PageProps) {
         useful_phrases
       )
     `)
-    .eq("test_id", testId)
-    .eq("part_type", dbPartType);
+    .eq("test_id", testId);
 
   if (groupsError || !groupsData || groupsData.length === 0) {
-    redirect(`/practice/${partId}`);
+    redirect(`/practice/full-test/${testId}`);
   }
 
-  // Sort groups and questions by question number
-  const sortedGroups = [...groupsData].sort((a, b) => {
+  // Filter groups based on selected mode
+  let filteredGroups = [...groupsData];
+  if (mode === "listening") {
+    filteredGroups = groupsData.filter(g => ["part_1", "part_2", "part_3", "part_4"].includes(g.part_type));
+  } else if (mode === "reading") {
+    filteredGroups = groupsData.filter(g => ["part_5", "part_6", "part_7"].includes(g.part_type));
+  }
+
+  if (filteredGroups.length === 0) {
+    // If no questions exist for the selected section, redirect back to mode selector
+    redirect(`/practice/full-test/${testId}`);
+  }
+
+  // Sort groups by part_type sequence (part_1 -> part_7), then by starting question number
+  const partOrder = ["part_1", "part_2", "part_3", "part_4", "part_5", "part_6", "part_7"];
+  const sortedGroups = filteredGroups.sort((a, b) => {
+    const partA = partOrder.indexOf(a.part_type);
+    const partB = partOrder.indexOf(b.part_type);
+    if (partA !== partB) return partA - partB;
+
     const aMin = a.questions && a.questions.length > 0
       ? Math.min(...a.questions.map((q) => q.question_number))
       : 999;
@@ -88,6 +104,7 @@ export default async function PartWorkspacePage({ params }: PageProps) {
     return aMin - bMin;
   });
 
+  // Sort questions inside each group by question number
   sortedGroups.forEach((group) => {
     if (group.questions) {
       group.questions.sort((a, b) => a.question_number - b.question_number);
@@ -98,16 +115,20 @@ export default async function PartWorkspacePage({ params }: PageProps) {
     ? (testData.books as unknown as { title: string }).title
     : "ETS Book";
 
+  let modeBadge = "Full Test Simulation";
+  if (mode === "listening") modeBadge = "Listening Section Practice";
+  else if (mode === "reading") modeBadge = "Reading Section Practice";
+
   return (
     <div className="flex-grow flex flex-col justify-center px-4 py-8 sm:px-6 lg:px-8 max-w-6xl mx-auto w-full">
-      {/* Back to practice menu link */}
+      {/* Back link */}
       <AnimateWrapper delay={0.05} className="mb-4">
         <Link
-          href={`/practice/${normalizedPartId}`}
+          href={`/practice/full-test/${testId}`}
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-purple-600 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Quay lại danh sách bài tập {partId.replace("part-", "Part ")}
+          Quay lại trang chọn chế độ
         </Link>
       </AnimateWrapper>
 
@@ -119,8 +140,8 @@ export default async function PartWorkspacePage({ params }: PageProps) {
               <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-purple-50 text-purple-700 border border-purple-100 uppercase">
                 {bookTitle}
               </span>
-              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 uppercase">
-                {normalizedPartId.replace("part-", "Part ")}
+              <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-100 uppercase">
+                {modeBadge}
               </span>
             </div>
             <h1 className="text-xl font-bold text-slate-900 mt-1">
@@ -131,10 +152,10 @@ export default async function PartWorkspacePage({ params }: PageProps) {
       </AnimateWrapper>
 
       {/* Workspace */}
-      <PartWorkspace
-        partId={normalizedPartId}
+      <FullTestWorkspace
         testId={testId}
         groups={sortedGroups as unknown as QuestionGroup[]}
+        mode={mode}
       />
     </div>
   );

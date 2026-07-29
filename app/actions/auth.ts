@@ -39,7 +39,10 @@ export async function getProfileActions(): Promise<Profile | null> {
       return null;
     }
 
-    return profile as Profile;
+    return {
+      ...(profile as Profile),
+      email: user.email || null,
+    };
   } catch (error: unknown) {
     if (
       error &&

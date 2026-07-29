@@ -49,7 +49,7 @@ export default function Practice() {
                   <ClipboardList className="h-8 w-8" />
                 </div>
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-100">
-                  100 câu hỏi • 45 phút
+                  Listening • Reading • Full Test
                 </span>
               </div>
 
@@ -58,7 +58,7 @@ export default function Practice() {
                 <Sparkles className="h-4 w-4 text-amber-500" />
               </h2>
               <p className="text-sm text-slate-600 mt-4 leading-relaxed">
-                Trải nghiệm quy trình thi thật: Nghe liên tục 4 phần từ Part 1 đến Part 4 trong một đề thi TOEIC chuẩn. Hệ thống sẽ tự động chấm điểm và hiển thị transcript sau khi nộp bài để bạn sửa lỗi nghe chép.
+                Trải nghiệm phòng thi thực tế với 3 lựa chọn luyện tập: Luyện Listening (45 phút), Luyện Reading (75 phút) hoặc Làm bài thi thử Full Test (120 phút, 200 câu) theo format đề TOEIC chuẩn.
               </p>
             </div>
 
